@@ -1,32 +1,83 @@
-# This compose file is for demonstration only, do not use in prod.
+name: logto-sample
+
+volumes:
+  caddy-config:
+  caddy-data:
+  postgres-data:
+
 services:
-  app:
-    depends_on:
-      postgres:
-        condition: service_healthy
-    image: svhd/logto:${TAG-latest}
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    restart: always
+    environment:
+      - DOMAIN=${DOMAIN}
+      - EMAIL4CERTS=${EMAIL4CERTS}
+      - APP_REAL_URL=${APP_REAL_URL}
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile
+      # CA certificates for self-signed. >>>
+      - ./certs/root.crt:/data/caddy/pki/authorities/local/root.crt:ro
+      - ./certs/root.key:/data/caddy/pki/authorities/local/root.key:ro
+      # CA certificates for self-signed. <<<
+      - caddy-data:/data
+      - caddy-config:/config
+
+  caddy-sidecar:
+    image: httpd:2
+    container_name: caddy-sidecar
+    restart: always
+
+  logto:
+    image: svhd/logto:latest
+    container_name: logto
     entrypoint: ["sh", "-c", "npm run cli db seed -- --swe && npm start"]
     ports:
       - 3001:3001
       - 3002:3002
+    restart: always
     environment:
       - TRUST_PROXY_HEADER=1
-      - DB_URL=postgres://postgres:p0stgr3s@postgres:5432/logto
-      # Optional default grace period, in seconds, for OIDC private key rotation when the API
-      # request omits `rotationGracePeriod`.
+      - ENDPOINT=${ENDPOINT}
+      - ADMIN_ENDPOINT=${ADMIN_ENDPOINT}
+      - DB_URL=postgres://postgres:changeme-pg-secret-here@postgres:5432/logto
+      # Optional default grace period, in seconds, for OIDC private key rotation when the API request omits `rotationGracePeriod`.
       - PRIVATE_KEY_ROTATION_GRACE_PERIOD
-      # Mandatory for GitPod to map host env to the container, thus GitPod can dynamically configure the public URL of Logto;
-      # Or, you can leverage it for local testing.
-      - ENDPOINT
-      - ADMIN_ENDPOINT
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-trixie
+    container_name: postgres
+    ports:
+      - 5432:5432
+    restart: always
     user: postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: p0stgr3s
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=changeme-pg-secret-here
+    volumes:
+      - ./config/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    ports:
+      - 54321:80
+    restart: always
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=example@example.com
+      - PGADMIN_DEFAULT_PASSWORD=password
+    depends_on:
+      - postgres

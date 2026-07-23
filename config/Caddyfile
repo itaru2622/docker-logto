@@ -1,0 +1,94 @@
+#
+# this mapping rules are converted into Caddyfile from traefik rules of https://github.com/ikuradon/atproto-starter-kit/blob/main/compose.yaml
+# cf. https://caddyserver.com/docs/caddyfile
+#
+# global options: starts >>>>
+{
+	on_demand_tls {
+		ask http://caddy-sidecar:80
+	}
+	#    limits to HTTP/1.1 >>>
+	servers {
+		protocols h1
+	}
+	#    limits to HTTP/1.1 <<<
+}
+
+# https://caddy.community/t/how-can-i-allow-multiple-domain-origins-in-cors/22129/5
+(cors) {
+	@cors_preflight {
+		method OPTIONS
+	}
+	@corsOrigin {
+		header_regexp Origin ^https?://*.({$DOMAIN})$
+	}
+
+	handle @cors_preflight {
+		header {
+			Access-Control-Allow-Origin "*"
+			Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE"
+			Access-Control-Allow-Headers *
+			Vary Origin
+			defer
+		}
+		respond "" 204
+	}
+
+	handle @corsOrigin {
+		header {
+			Access-Control-Allow-Origin "*"
+			Access-Control-Expose-Headers *
+			Vary Origin
+			defer
+		}
+	}
+}
+
+# global options: ends   <<<<
+# starts; reverse proxying rules >>>>>
+
+auth.{$DOMAIN} {
+	import cors
+	tls {$EMAIL4CERTS} {
+		on_demand
+	}
+
+	@ws {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+
+	reverse_proxy @ws http://logto:3001
+	reverse_proxy http://logto:3001
+}
+
+auth-admin.{$DOMAIN} {
+	import cors
+	tls {$EMAIL4CERTS} {
+		on_demand
+	}
+
+	@ws {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+
+	reverse_proxy @ws http://logto:3002
+	reverse_proxy http://logto:3002
+}
+
+
+app.{$DOMAIN} {
+        import cors
+        tls {$EMAIL4CERTS} {
+                on_demand
+        }
+
+        @ws {
+                header Connection *Upgrade*
+                header Upgrade websocket
+        }
+
+        reverse_proxy @ws {$APP_REAL_URL}
+        reverse_proxy {$APP_REAL_URL}
+}
